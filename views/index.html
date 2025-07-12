@@ -1,0 +1,31 @@
+<div class="tab-content" id="file-tab">
+  <form id="upload-form" enctype="multipart/form-data">
+    <div class="file-upload-area" id="drop-zone">
+      <input type="file" id="file-input" hidden>
+      <div class="upload-icon">
+        <svg viewBox="0 0 24 24">
+          <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" />
+        </svg>
+      </div>
+      <p>Drag & drop files here or <span id="browse-btn">browse</span></p>
+      <p class="file-info">Max file size: 100MB</p>
+      <div class="file-preview hidden" id="file-preview">
+        <span id="selected-file-name"></span>
+        <span id="selected-file-size"></span>
+      </div>
+    </div>
+    <button type="submit" class="upload-btn" disabled id="upload-btn">Upload</button>
+  </form>
+  <div id="upload-result" class="hidden">
+    <div class="result-box">
+      <p class="file-name" id="uploaded-file-name"></p>
+      <div class="input-group">
+        <input type="text" id="download-url" readonly>
+        <button id="copy-download-btn">Copy</button>
+      </div>
+      <div class="expiry-info">
+        File will expire in <span id="expiry-days">7 days</span>
+      </div>
+    </div>
+  </div>
+</div>
