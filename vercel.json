@@ -3,29 +3,29 @@
   "builds": [
     {
       "src": "package.json",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "pages/**/*.js",
       "use": "@vercel/next"
     }
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
+      "src": "/api/links/(.*)",
+      "dest": "/api/links"
+    },
+    {
+      "src": "/api/uploads/(.*)",
+      "dest": "/api/uploads"
     },
     {
       "src": "/l/(.*)",
-      "dest": "/api/links/$1"
+      "dest": "/api/links?code=$1"
     },
     {
       "src": "/f/(.*)",
-      "dest": "/api/uploads/$1"
+      "dest": "/api/uploads?code=$1"
     },
     {
       "src": "/(.*)",
-      "dest": "/pages/$1"
+      "dest": "/"
     }
   ]
 }
