@@ -1,85 +1,131 @@
-import { connectToDB } from '../../lib/database';
-import { FileUpload } from '../../lib/models';
-import { storage } from '../../lib/storage';
-import { NextApiRequest, NextApiResponse } from 'next';
+const express = require('express');
+const router = express.Router();
+const FileUpload = require('../models/FileUpload');
+const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 
-export const config = {
-  api: {
-    bodyParser: false,
+// Konfigurasi Multer untuk handle upload
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../../public/uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
   },
-};
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const uniqueName = `${crypto.randomBytes(8).toString('hex')}-${Date.now()}${ext}`;
+    cb(null, uniqueName);
+  }
+});
 
-export default async function handler(req, res) {
-  await connectToDB();
+const upload = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  fileFilter: (req, file, cb) => {
+    // Validasi ekstensi file
+    const allowedTypes = [
+      'image/jpeg', 
+      'image/png',
+      'application/pdf',
+      'application/zip',
+      'text/plain',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    
+    if (!allowedTypes.includes(file.mimetype)) {
+      return cb(new Error('File type not allowed'));
+    }
+    cb(null, true);
+  }
+}).single('file');
 
-  if (req.method === 'POST') {
-    // Handle file upload
-    try {
-      const formData = await new Promise((resolve, reject) => {
-        const form = new multiparty.Form();
-        form.parse(req, (err, fields, files) => {
-          if (err) reject(err);
-          resolve({ fields, files });
-        });
+// Handle upload file
+router.post('/upload', (req, res) => {
+  upload(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ 
+        error: err.message || 'Error uploading file' 
       });
+    }
 
-      const uploadedFile = formData.files.file[0];
-      
-      // Upload to Vercel Blob (or alternative storage)
-      const blob = await storage.put(
-        `${crypto.randomBytes(8).toString('hex')}-${uploadedFile.originalFilename}`,
-        fs.createReadStream(uploadedFile.path),
-        {
-          contentType: uploadedFile.headers['content-type'],
-        }
-      );
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
 
+    try {
       const shortCode = crypto.randomBytes(6).toString('hex');
       
       const fileUpload = new FileUpload({
-        originalName: uploadedFile.originalFilename,
-        storedName: blob.url,
+        originalName: req.file.originalname,
+        storedName: req.file.filename,
         shortCode,
-        size: uploadedFile.size
+        size: req.file.size,
+        mimeType: req.file.mimetype
       });
-      
-      await fileUpload.save();
-      
-      res.json({
-        downloadUrl: `${req.headers['x-forwarded-proto']}://${req.headers['x-forwarded-host']}/f/${shortCode}`,
-        fileName: uploadedFile.originalFilename,
-        size: formatFileSize(uploadedFile.size)
-      });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  } else {
-    // Handle download
-    try {
-      const { code } = req.query;
-      const fileUpload = await FileUpload.findOne({ shortCode: code });
-      
-      if (!fileUpload) {
-        return res.status(404).send('File not found');
-      }
-      
-      fileUpload.downloads++;
-      await fileUpload.save();
-      
-      const blob = await storage.get(fileUpload.storedName);
-      res.setHeader('Content-Type', blob.contentType);
-      res.setHeader('Content-Disposition', `attachment; filename="${fileUpload.originalName}"`);
-      blob.body.pipe(res);
-    } catch (err) {
-      res.status(500).send('Server error');
-    }
-  }
-}
 
+      await fileUpload.save();
+
+      res.json({
+        success: true,
+        downloadUrl: `${req.protocol}://${req.get('host')}/f/${shortCode}`,
+        fileName: req.file.originalname,
+        fileSize: formatFileSize(req.file.size),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 hari kedepan
+      });
+
+    } catch (error) {
+      // Hapus file jika gagal menyimpan ke database
+      fs.unlinkSync(path.join(__dirname, '../../public/uploads', req.file.filename));
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+});
+
+// Handle download file
+router.get('/:code', async (req, res) => {
+  try {
+    const fileUpload = await FileUpload.findOneAndUpdate(
+      { shortCode: req.params.code },
+      { $inc: { downloads: 1 } },
+      { new: true }
+    );
+
+    if (!fileUpload) {
+      return res.status(404).send('File not found or expired');
+    }
+
+    const filePath = path.join(__dirname, '../../public/uploads', fileUpload.storedName);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send('File not found');
+    }
+
+    res.set({
+      'Content-Type': fileUpload.mimeType,
+      'Content-Disposition': `attachment; filename="${fileUpload.originalName}"`,
+      'Content-Length': fileUpload.size
+    });
+
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+
+  } catch (error) {
+    res.status(500).send('Server error');
+  }
+});
+
+// Format ukuran file
 function formatFileSize(bytes) {
   if (bytes === 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-                        }
+}
+
+module.exports = router;
