@@ -1,0 +1,37 @@
+const mongoose = require('mongoose');
+
+const fileUploadSchema = new mongoose.Schema({
+  originalName: {
+    type: String,
+    required: true
+  },
+  storedName: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  shortCode: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    expires: '7d' // File otomatis dihapus setelah 7 hari
+  },
+  downloads: {
+    type: Number,
+    default: 0
+  },
+  size: {
+    type: Number,
+    required: true
+  },
+  mimeType: {
+    type: String,
+    required: true
+  }
+});
+
+module.exports = mongoose.model('FileUpload', fileUploadSchema);
